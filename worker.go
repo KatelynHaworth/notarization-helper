@@ -77,6 +77,8 @@ func (worker *Worker) canStaple() bool {
 	case ".pkg":
 		return true
 
+	case ".kext":
+		fallthrough
 	case ".app":
 		return stat.IsDir()
 
