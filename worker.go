@@ -18,6 +18,10 @@ import (
 	"howett.net/plist"
 )
 
+const (
+	infoWaitTime = 10*time.Second
+)
+
 type Worker struct {
 	config *Configuration
 	target Package
@@ -171,12 +175,16 @@ waitLoop:
 	for {
 		info, err := worker.getNotarizationStatus(upload)
 		switch {
+		case err != nil && errors.Cause(err).Error() == "Could not find the RequestUUID.":
+			time.Sleep(infoWaitTime)
+
+
 		case err != nil:
 			worker.logger.Error().Err(err).Msg("Encountered error getting notarization status from Apple")
 			return
 
 		case info.Status == "in progress":
-			time.Sleep(1*time.Second)
+			time.Sleep(infoWaitTime)
 
 		case info.Status == "invalid":
 			worker.info = info
