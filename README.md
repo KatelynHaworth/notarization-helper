@@ -1,16 +1,23 @@
 Notarization Helper
 ===================
 
-This tool provides a utility to wrap the [Apple notarization process][1], it requires that XCode is installed on your system
-for it to work.
+This tool provides a utility to wrap the [Apple notarization process][1], it supports both macOS and Linux.
 
-# Installing
+## Installing
 
 ```
 go install github.com/LiamHaworth/notarization-helper
 ```
 
-# Usage
+### macOS
+
+Usage on macOS requires that XCode be installed so that the tool can use `xcrun altool` and `xcrun stapler`.
+
+### Linux
+
+Usage on Linux requires that [iTMS Transporter][2] be installed and available in the system `PATH` environment variable.
+
+## Usage
 
 The command line utility supports to modes of operating for either notarizing a single file or multiple files.
 
@@ -39,20 +46,27 @@ And then pass that file to the notarization tool:
 notarization-helper --file definitions.yaml
 ```
 
-# Stapling
+## Stapling
 
 If you desire the notarization helper can also staple the notarization ticket to a file so that it can be verified offline
-by a device, but note this is only supported for files with the extension `.pkg`, `.dmg` or `.app`.
+by a device, but note this is only supported for files with the extension `.pkg`, `.dmg`, `.kext`, or `.app`.
 
 This can be done by either supplying the `--staple` flag or specifying `staple: true`.
 
-# Licence
+**NOTE:** Only `.app`, `.kext`, and `.pkg` file types are supported on Linux
+
+## What about code signing?
+
+If you need to code sign your package or bundle you can use the built-in `codesign` utility on macOS and on Linux you can 
+use the `apple-codesign` utility from [PyOxidizer][3].
+
+## Licence
 
 MIT License
 
-Copyright (c) 2019 Liam Haworth.
+Copyright (c) 2019-22 Liam Haworth.
 
-Copyright (c) 2019 Family Zone Cyber Safety Ltd.
+Copyright (c) 2019-22 Family Zone Cyber Safety Ltd.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -73,3 +87,5 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 [1]: https://developer.apple.com/documentation/security/notarizing_your_app_before_distribution
+[2]: https://help.apple.com/itc/transporteruserguide/en.lproj/static.html#apdbb0ee90816044
+[3]: https://github.com/indygreg/PyOxidizer/tree/main/apple-codesign

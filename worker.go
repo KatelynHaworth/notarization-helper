@@ -8,28 +8,31 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
-	"howett.net/plist"
 )
 
 const (
-	infoWaitTime = 10*time.Second
+	infoWaitTime = 10 * time.Second
+)
+
+var (
+	fileNameEscapeRegexp = regexp.MustCompile(`[/: ]+`)
 )
 
 type Worker struct {
-	config *Configuration
-	target Package
-	logger zerolog.Logger
+	config  *Configuration
+	target  Package
+	logger  zerolog.Logger
 	zipFile string
-	wait *sync.WaitGroup
-	info *NotarizationInfo
-	log *NotarizationLog
+	wait    *sync.WaitGroup
+	info    *NotarizationInfo
+	log     *NotarizationLog
 }
 
 func NewWorker(config *Configuration, p Package, wait *sync.WaitGroup, logger zerolog.Logger) (*Worker, error) {
@@ -43,7 +46,7 @@ func NewWorker(config *Configuration, p Package, wait *sync.WaitGroup, logger ze
 	stat, err := os.Stat(worker.target.File)
 	switch {
 	case err != nil && os.IsNotExist(err):
-		return nil, errors.Wrap(err,"package file doesn't exist")
+		return nil, errors.Wrap(err, "package file doesn't exist")
 
 	case err != nil:
 		return nil, errors.Wrap(err, "stat package file")
@@ -73,26 +76,10 @@ func (worker *Worker) allowedFileExtension() bool {
 	}
 }
 
-func (worker *Worker) canStaple() bool {
-	stat, _ := os.Stat(worker.target.File)
-	switch filepath.Ext(worker.target.File) {
-	case ".dmg":
-		fallthrough
-	case ".pkg":
-		return true
-
-	case ".kext":
-		fallthrough
-	case ".app":
-		return stat.IsDir()
-
-	default:
-		return false
-	}
-}
-
 func (worker *Worker) zipPackageFile(isDir bool) error {
-	zipFile, err := ioutil.TempFile("", fmt.Sprintf("*-%s.zip", filepath.Base(worker.target.File)))
+	escapedFileName := fileNameEscapeRegexp.ReplaceAllString(filepath.Base(worker.target.File), "")
+
+	zipFile, err := ioutil.TempFile("", fmt.Sprintf("*-%s.zip", escapedFileName))
 	if err != nil {
 		return errors.Wrap(err, "open temporary file for zip")
 	}
@@ -134,15 +121,9 @@ func (worker *Worker) addFileToZIP(writer *zip.Writer, info os.FileInfo, path st
 		}
 	}
 
-	sourceFile, err := os.OpenFile(path, os.O_RDONLY, 0000)
-	if err != nil {
-		return errors.Wrap(err, "open source file for reading")
-	}
-	defer sourceFile.Close()
-
 	fileHeader, _ := zip.FileInfoHeader(info)
 	if useRel {
-		fileHeader.Name, _ = filepath.Rel(worker.target.File, path)
+		fileHeader.Name, _ = filepath.Rel(filepath.Dir(worker.target.File), path)
 	} else {
 		fileHeader.Name = filepath.Base(path)
 	}
@@ -152,8 +133,26 @@ func (worker *Worker) addFileToZIP(writer *zip.Writer, info os.FileInfo, path st
 		return errors.Wrap(err, "create ZIP entry for file")
 	}
 
-	if _, err := io.Copy(fileWriter, sourceFile); err != nil {
-		return errors.Wrap(err, "write ZIP entry data from file")
+	if info.Mode()&os.ModeSymlink != 0 {
+		linkTarget, err := os.Readlink(path)
+		if err != nil {
+			return errors.Wrap(err, "read symlink target")
+		}
+
+		_, err = fileWriter.Write([]byte(filepath.ToSlash(linkTarget)))
+		if err != nil {
+			return errors.Wrap(err, "write ZIP file entry for symlink target")
+		}
+	} else {
+		sourceFile, err := os.OpenFile(path, os.O_RDONLY, 0644)
+		if err != nil {
+			return errors.Wrap(err, "open source file for reading")
+		}
+		defer sourceFile.Close()
+
+		if _, err := io.Copy(fileWriter, sourceFile); err != nil {
+			return errors.Wrap(err, "write ZIP entry data from file")
+		}
 	}
 
 	return nil
@@ -177,7 +176,6 @@ waitLoop:
 		switch {
 		case err != nil && errors.Cause(err).Error() == "Could not find the RequestUUID.":
 			time.Sleep(infoWaitTime)
-
 
 		case err != nil:
 			worker.logger.Error().Err(err).Msg("Encountered error getting notarization status from Apple")
@@ -210,96 +208,6 @@ waitLoop:
 	}
 
 	worker.logger.Info().Msg("Notarization finished")
-}
-
-func (worker *Worker) uploadForNotarization() (*NotarizationUpload, error) {
-	if len(worker.zipFile) > 0 {
-		defer os.Remove(worker.zipFile)
-	}
-
-	cmd := exec.Command("xcrun", "altool", "--notarize-app")
-	cmd.Args = append(cmd.Args, []string{
-		"--output-format", "xml",
-		"--primary-bundle-id", worker.target.BundleID,
-		"--username", worker.config.Username,
-		"--password", worker.config.Password,
-	}...)
-
-	if len(worker.config.TeamID) > 0 {
-		cmd.Args = append(cmd.Args, []string{
-			"-itc_provider", worker.config.TeamID,
-		}...)
-	}
-
-	if len(worker.zipFile) > 0 {
-		cmd.Args = append(cmd.Args, []string{
-			"--file", worker.zipFile,
-		}...)
-	} else {
-		cmd.Args = append(cmd.Args, []string{
-			"--file", worker.target.File,
-		}...)
-	}
-
-	stdOut, err := cmd.Output()
-	output := new(CommandOutput)
-	if _, err := plist.Unmarshal(stdOut, output); err != nil {
-		return nil, errors.Wrap(err, "unmarshal command output")
-	}
-
-	switch {
-	case len(output.ProductErrors) > 0:
-		fmt.Printf("%#v\n", output.ProductErrors[0])
-		return nil, errors.Wrap(output.ProductErrors[0], "execute altool")
-
-	case err != nil:
-		return nil, errors.Wrap(err, "execute altool")
-
-	default:
-		return &output.Upload, nil
-	}
-}
-
-func (worker *Worker) getNotarizationStatus(upload *NotarizationUpload) (*NotarizationInfo, error) {
-	cmd := exec.Command("xcrun", "altool", "--notarization-info", upload.RequestUUID, "--username", worker.config.Username, "--password", worker.config.Password, "--output-format", "xml")
-
-	stdOut, err := cmd.Output()
-	output := new(CommandOutput)
-	if _, err := plist.Unmarshal(stdOut, output); err != nil {
-		return nil, errors.Wrap(err, "unmarshal command output")
-	}
-
-	switch {
-	case len(output.ProductErrors) > 0:
-		return nil, errors.Wrap(output.ProductErrors[0], "execute altool")
-
-	case err != nil:
-		return nil, errors.Wrap(err, "execute altool")
-
-	default:
-		return &output.Info, nil
-	}
-}
-
-func (worker *Worker) staplePackage() error {
-	switch {
-	case !worker.target.Staple:
-		return nil
-
-	case !worker.canStaple():
-		worker.logger.Warn().Msg("This file type is not supported for stapling, continuing without stapling")
-		return nil
-
-	default:
-		worker.logger.Info().Msg("Stapling notarization ticket to package")
-
-		cmd := exec.Command("xcrun", "stapler", "staple", worker.target.File)
-		if err := cmd.Run(); err != nil {
-			return errors.Wrap(err, "execute stapler")
-		}
-
-		return nil
-	}
 }
 
 func (worker *Worker) downloadNotarizationLog() error {

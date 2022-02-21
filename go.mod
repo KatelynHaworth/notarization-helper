@@ -1,8 +1,9 @@
 module github.com/LiamHaworth/notarization-helper
 
-go 1.12
+go 1.16
 
 require (
+	github.com/go-resty/resty/v2 v2.7.0
 	github.com/pkg/errors v0.8.1
 	github.com/rs/zerolog v1.15.0
 	gopkg.in/yaml.v2 v2.2.1
