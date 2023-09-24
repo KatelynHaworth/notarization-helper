@@ -27,71 +27,42 @@ func (worker *Worker) canStaple() bool {
 	}
 }
 
-func (worker *Worker) uploadForNotarization() (*NotarizationUpload, error) {
+func (worker *Worker) uploadForNotarization() (*NotaryToolInfo, error) {
 	if len(worker.zipFile) > 0 {
 		defer os.Remove(worker.zipFile)
 	}
 
-	cmd := exec.Command("xcrun", "altool", "--notarize-app")
+	cmd := exec.Command("xcrun", "notarytool", "submit")
 	cmd.Args = append(cmd.Args, []string{
-		"--output-format", "xml",
-		"--primary-bundle-id", worker.target.BundleID,
-		"--username", worker.config.Username,
-		"--password", worker.config.Password,
+		"--output-format", "plist",
+		"--apple-id", worker.config.Username,
+		"--keychain-profile", worker.config.Password, // TODO: add new field "profile" and replace "password" in Config
+		"--wait",
 	}...)
-
 	if len(worker.config.TeamID) > 0 {
 		cmd.Args = append(cmd.Args, []string{
-			"-itc_provider", worker.config.TeamID,
+			"--team-id", worker.config.TeamID,
 		}...)
 	}
 
 	if len(worker.zipFile) > 0 {
-		cmd.Args = append(cmd.Args, []string{
-			"--file", worker.zipFile,
-		}...)
+		cmd.Args = append(cmd.Args, worker.zipFile)
 	} else {
-		cmd.Args = append(cmd.Args, []string{
-			"--file", worker.target.File,
-		}...)
+		cmd.Args = append(cmd.Args, worker.target.File)
 	}
 
 	stdOut, err := cmd.Output()
-	output := new(CommandOutput)
+	output := new(NotaryToolInfo)
 	if _, err := plist.Unmarshal(stdOut, output); err != nil {
 		return nil, errors.Wrap(err, "unmarshal command output")
 	}
 
 	switch {
-	case len(output.ProductErrors) > 0:
-		return nil, errors.Wrap(output.ProductErrors[0], "execute altool")
-
 	case err != nil:
-		return nil, errors.Wrap(err, "execute altool")
+		return nil, errors.Wrap(err, "execute notarytool submit")
 
 	default:
-		return &output.Upload, nil
-	}
-}
-
-func (worker *Worker) getNotarizationStatus(upload *NotarizationUpload) (*NotarizationInfo, error) {
-	cmd := exec.Command("xcrun", "altool", "--notarization-info", upload.RequestUUID, "--username", worker.config.Username, "--password", worker.config.Password, "--output-format", "xml")
-
-	stdOut, err := cmd.Output()
-	output := new(CommandOutput)
-	if _, err := plist.Unmarshal(stdOut, output); err != nil {
-		return nil, errors.Wrap(err, "unmarshal command output")
-	}
-
-	switch {
-	case len(output.ProductErrors) > 0:
-		return nil, errors.Wrap(output.ProductErrors[0], "execute altool")
-
-	case err != nil:
-		return nil, errors.Wrap(err, "execute altool")
-
-	default:
-		return &output.Info, nil
+		return output, nil
 	}
 }
 
