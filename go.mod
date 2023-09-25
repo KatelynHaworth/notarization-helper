@@ -1,4 +1,4 @@
-module github.com/valentineg-fz/notarization-helper
+module github.com/LiamHaworth/notarization-helper
 
 go 1.16
 
