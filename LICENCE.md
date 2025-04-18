@@ -1,8 +1,8 @@
 MIT License
 
-Copyright (c) 2019-22 Liam Haworth.
+Copyright (c) 2019-25 Katelyn Haworth.
 
-Copyright (c) 2019-22 Family Zone Cyber Safety Ltd.
+Copyright (c) 2019-25 Qoria Ltd.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
