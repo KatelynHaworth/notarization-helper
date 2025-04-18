@@ -47,9 +47,8 @@ func Decoder(hdr blobs.BlobHeader, src *io.SectionReader) (blobs.Blob, error) {
 		SupportsData: make(map[SupportsVersion]any),
 	}
 
-	version := cd.Version()
 	for _, verMeta := range supportsRegistry {
-		if version < verMeta.ver {
+		if cd.Version() < verMeta.ver {
 			break
 		}
 
@@ -182,8 +181,14 @@ func (cd *CodeDirectory) String() string {
 	var builder strings.Builder
 
 	builder.WriteString("CodeDirectory{")
-	_, _ = fmt.Fprintf(&builder, "length: %d, ", cd.hdr.Length)
-	_, _ = fmt.Fprintf(&builder, "version: %s, ", cd.Version)
+
+	if length, err := cd.Length(); err == nil {
+		_, _ = fmt.Fprintf(&builder, "length: %d, ", length)
+	} else {
+		_, _ = fmt.Fprintf(&builder, "length: ERR(%s), ", err)
+	}
+
+	_, _ = fmt.Fprintf(&builder, "version: %s, ", cd.Version())
 	_, _ = fmt.Fprintf(&builder, "identity: %s, ", cd.Identity)
 	_, _ = fmt.Fprintf(&builder, "flags: %s, ", cd.Flags)
 	_, _ = fmt.Fprintf(&builder, "hash_type: %s, ", cd.HashType)
